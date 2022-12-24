@@ -23,11 +23,11 @@ func (p *Parser) ParseProgram() *ast.Program {
 	prog := new(ast.Program)
 	prog.Statements = make([]ast.Statement, 0)
 	var tkn *token.Token
-	var peekErr error
+	var nxtErr error
 
-	for tkn, peekErr = p.l.NextToken(); tkn.Type != token.EOF; tkn, peekErr = p.l.NextToken() {
-		if peekErr != nil {
-			p.Errors = append(p.Errors, peekErr)
+	for tkn, nxtErr = p.l.NextToken(); tkn.Type != token.EOF; tkn, nxtErr = p.l.NextToken() {
+		if nxtErr != nil {
+			p.Errors = append(p.Errors, nxtErr)
 			break
 		}
 		stmt, err := p.parseStatement(tkn)
@@ -47,6 +47,8 @@ func (p *Parser) parseStatement(startToken *token.Token) (ast.Statement, error) 
 	switch startToken.Type {
 	case token.LET:
 		return p.parseLetStatement(startToken)
+	case token.RETURN:
+		return p.parseReturnStatement(startToken)
 	default:
 		return nil, nil
 	}
@@ -74,6 +76,18 @@ func (p *Parser) parseLetStatement(startToken *token.Token) (*ast.LetStatement, 
 	}
 	if _, err := p.l.NextToken(); err != nil {
 		return nil, err
+	}
+
+	// TODO, skip value
+	for err := p.assertPeek(token.SEMICOLON); err != nil; _, err = p.l.NextToken() {
+	}
+
+	return stmt, nil
+}
+
+func (p *Parser) parseReturnStatement(startToken *token.Token) (*ast.ReturnStatement, error) {
+	stmt := &ast.ReturnStatement{
+		Token: startToken,
 	}
 
 	// TODO, skip value
