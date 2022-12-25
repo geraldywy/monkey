@@ -41,10 +41,14 @@ func New(l *lexer.Lexer) *Parser {
 	p.prefixParseFns = map[token.TokenType]prefixParseFn{
 		token.IDENT:      p.parseIdentifier,
 		token.INT:        p.parseIntegerLiteral,
+		token.TRUE:       p.parseBooleanLiteral,
+		token.FALSE:      p.parseBooleanLiteral,
 		token.BANG:       p.parsePrefixExpression,
 		token.MINUS:      p.parsePrefixExpression,
 		token.MINUSMINUS: p.parsePrefixExpression,
 		token.PLUSPLUS:   p.parsePrefixExpression,
+		token.LPAREN:     p.parseGroupedExpression,
+		token.IF:         p.parseIfExpression,
 	}
 	p.infixParseFns = map[token.TokenType]infixParseFn{
 		token.PLUS:     p.parseInfixExpression,
@@ -80,6 +84,19 @@ func (p *Parser) parseIntegerLiteral(tkn *token.Token) (ast.Expression, error) {
 	return exp, nil
 }
 
+func (p *Parser) parseBooleanLiteral(tkn *token.Token) (ast.Expression, error) {
+	exp := &ast.Boolean{
+		Token: tkn,
+	}
+	var err error
+	exp.Value, err = strconv.ParseBool(tkn.Literal)
+	if err != nil {
+		return nil, err
+	}
+
+	return exp, nil
+}
+
 func (p *Parser) parsePrefixExpression(tkn *token.Token) (ast.Expression, error) {
 	expression := &ast.PrefixExpression{
 		Token:    tkn,
@@ -98,6 +115,122 @@ func (p *Parser) parsePrefixExpression(tkn *token.Token) (ast.Expression, error)
 	}
 
 	return expression, nil
+}
+
+func (p *Parser) parseGroupedExpression(_ *token.Token) (ast.Expression, error) {
+	nxtToken, err := p.nextToken()
+	if err != nil {
+		return nil, err
+	}
+
+	exp, err := p.parseExpression(nxtToken, LOWEST)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.assertPeek(token.RPAREN); err != nil {
+		return nil, err
+	}
+	// advance past ')'
+	if _, err := p.nextToken(); err != nil {
+		return nil, err
+	}
+
+	return exp, nil
+}
+
+func (p *Parser) parseIfExpression(tkn *token.Token) (ast.Expression, error) {
+	exp := &ast.IfExpression{Token: tkn}
+
+	if err := p.assertPeek(token.LPAREN); err != nil {
+		return nil, err
+	}
+	if _, err := p.nextToken(); err != nil {
+		return nil, err
+	}
+	nxtTkn, err := p.nextToken()
+	if err != nil {
+		return nil, err
+	}
+
+	// Question: Won't this fail? parse expression will read and attempt to evaluate the ')'
+	// Answer: No, it is convenient that the default precedence returned for any uncalibrated
+	// token is LOWEST, thus, ')' will have a LOWEST precedence, causing the evaluation of the
+	// expression to be terminated just right before the ')',
+	// See the IF precedence condition in the loop in parser.parseExpression
+	exp.Condition, err = p.parseExpression(nxtTkn, LOWEST)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.assertPeek(token.RPAREN); err != nil {
+		return nil, err
+	}
+	if _, err := p.nextToken(); err != nil {
+		return nil, err
+	}
+
+	if err := p.assertPeek(token.LBRACE); err != nil {
+		return nil, err
+	}
+	lBraceTkn, err := p.nextToken()
+	if err != nil {
+		return nil, err
+	}
+
+	if exp.Consequence, err = p.parseBlockStatement(lBraceTkn); err != nil {
+		return nil, err
+	}
+
+	// no ELSE to evaluate
+	if err := p.assertPeek(token.ELSE); err != nil {
+		return exp, nil
+	}
+
+	if _, err := p.nextToken(); err != nil {
+		return nil, err
+	}
+
+	if err := p.assertPeek(token.LBRACE); err != nil {
+		return nil, err
+	}
+	lBraceTkn, err = p.nextToken()
+	if err != nil {
+		return nil, err
+	}
+	if exp.Alternative, err = p.parseBlockStatement(lBraceTkn); err != nil {
+		return nil, err
+	}
+
+	return exp, nil
+}
+
+func (p *Parser) parseBlockStatement(tkn *token.Token) (*ast.BlockStatement, error) {
+	block := &ast.BlockStatement{
+		Token:      tkn,
+		Statements: make([]ast.Statement, 0),
+	}
+	var err error
+
+	for err = p.assertPeek(token.RBRACE, token.EOF); err != nil; err = p.assertPeek(token.RBRACE, token.EOF) {
+		nxtToken, err := p.nextToken()
+		if err != nil {
+			return nil, err
+		}
+		stmt, err := p.parseStatement(nxtToken)
+		if err != nil {
+			return nil, err
+		}
+		block.Statements = append(block.Statements, stmt)
+	}
+	if err := p.assertPeek(token.RBRACE); err != nil {
+		return nil, err
+	}
+	// advance past '}'
+	if _, err := p.nextToken(); err != nil {
+		return nil, err
+	}
+
+	return block, nil
 }
 
 func (p *Parser) parseInfixExpression(left ast.Expression, tkn *token.Token) (ast.Expression, error) {
