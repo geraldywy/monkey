@@ -105,6 +105,8 @@ func TestNextToken(t *testing.T) {
 				10 != 9;
 				4 >= 2;
 				1 <= 2;
+				++2;
+				--5;
 				`,
 			wants: []tsWants{
 				{token.LET, "let", nil},
@@ -187,6 +189,12 @@ func TestNextToken(t *testing.T) {
 				{token.INT, "1", nil},
 				{token.LTE, "<=", nil},
 				{token.INT, "2", nil},
+				{token.SEMICOLON, ";", nil},
+				{token.PLUSPLUS, "++", nil},
+				{token.INT, "2", nil},
+				{token.SEMICOLON, ";", nil},
+				{token.MINUSMINUS, "--", nil},
+				{token.INT, "5", nil},
 				{token.SEMICOLON, ";", nil},
 				{token.EOF, "", nil},
 			},

@@ -20,18 +20,20 @@ const (
 	INT   = "INT"   // 1343456
 
 	// Operators
-	ASSIGN   = "="
-	PLUS     = "+"
-	MINUS    = "-"
-	BANG     = "!"
-	ASTERISK = "*"
-	SLASH    = "/"
-	LT       = "<"
-	GT       = ">"
-	EQ       = "=="
-	NEQ      = "!="
-	GTE      = ">="
-	LTE      = "<="
+	ASSIGN     = "="
+	PLUS       = "+"
+	MINUS      = "-"
+	BANG       = "!"
+	ASTERISK   = "*"
+	SLASH      = "/"
+	LT         = "<"
+	GT         = ">"
+	EQ         = "=="
+	NEQ        = "!="
+	GTE        = ">="
+	LTE        = "<="
+	PLUSPLUS   = "++"
+	MINUSMINUS = "--"
 
 	// Delimiters
 	COMMA     = ","
@@ -73,6 +75,8 @@ var DoubleToken = map[string]TokenType{
 	"!=": NEQ,
 	">=": GTE,
 	"<=": LTE,
+	"++": PLUSPLUS,
+	"--": MINUSMINUS,
 }
 
 var reservedKeywords = map[string]TokenType{

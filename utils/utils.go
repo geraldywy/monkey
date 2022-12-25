@@ -11,3 +11,13 @@ func IsAlphaOrUnderscore(ch byte) bool {
 func IsWhitespace(ch byte) bool {
 	return ch == ' ' || ch == '\n' || ch == '\t' || ch == '\r'
 }
+
+func Contains[T comparable](s []T, toContain T) bool {
+	for _, item := range s {
+		if item == toContain {
+			return true
+		}
+	}
+
+	return false
+}
