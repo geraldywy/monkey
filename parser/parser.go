@@ -60,9 +60,34 @@ func New(l *lexer.Lexer) *Parser {
 		token.NEQ:      p.parseInfixExpression,
 		token.LT:       p.parseInfixExpression,
 		token.GT:       p.parseInfixExpression,
+		token.LPAREN:   p.parseCallExpression,
 	}
 
 	return p
+}
+
+func (p *Parser) ParseProgram() *ast.Program {
+	prog := new(ast.Program)
+	prog.Statements = make([]ast.Statement, 0)
+	var tkn *token.Token
+	var nxtErr error
+
+	for tkn, nxtErr = p.nextToken(); tkn.Type != token.EOF; tkn, nxtErr = p.nextToken() {
+		if nxtErr != nil {
+			p.Errors = append(p.Errors, nxtErr)
+			break
+		}
+		stmt, err := p.parseStatement(tkn)
+		if err != nil {
+			p.Errors = append(p.Errors, err)
+			continue // redundant, but just leaving it in here for clarity
+		}
+		if stmt != nil {
+			prog.Statements = append(prog.Statements, stmt)
+		}
+	}
+
+	return prog
 }
 
 func (p *Parser) parseIdentifier(tkn *token.Token) (ast.Expression, error) {
@@ -287,28 +312,53 @@ func (p *Parser) parseInfixExpression(left ast.Expression, tkn *token.Token) (as
 	return expression, nil
 }
 
-func (p *Parser) ParseProgram() *ast.Program {
-	prog := new(ast.Program)
-	prog.Statements = make([]ast.Statement, 0)
-	var tkn *token.Token
-	var nxtErr error
+func (p *Parser) parseCallExpression(fn ast.Expression, tkn *token.Token) (ast.Expression, error) {
+	exp := &ast.CallExpression{
+		Token:    tkn,
+		Function: fn,
+	}
+	arg, err := p.parseCallArgs()
+	if err != nil {
+		return nil, err
+	}
+	exp.Arguments = arg
 
-	for tkn, nxtErr = p.nextToken(); tkn.Type != token.EOF; tkn, nxtErr = p.nextToken() {
-		if nxtErr != nil {
-			p.Errors = append(p.Errors, nxtErr)
-			break
-		}
-		stmt, err := p.parseStatement(tkn)
+	return exp, nil
+}
+
+func (p *Parser) parseCallArgs() ([]ast.Expression, error) {
+	args := make([]ast.Expression, 0)
+
+	// scan till rbrace
+	for p.assertPeek(token.RPAREN) != nil {
+		nxtToken, err := p.nextToken()
 		if err != nil {
-			p.Errors = append(p.Errors, err)
-			continue // redundant, but just leaving it in here for clarity
+			return nil, err
 		}
-		if stmt != nil {
-			prog.Statements = append(prog.Statements, stmt)
+
+		// Question: Why does this work? Wouldn't parseExpression consume the ',' separators
+		// as part of the expressions? Why don't we need to manually intervene?
+		// Answer: Similar to the previous question I had, the precedence of an uninitialized
+		// token ',' is LOWEST, causing the loop in parseExpression to terminate early
+		// as the precedence of LOWEST is always in the worst case equal to the caller.
+		// This way, the expression will always be evaluated up till the ',' OR ')' OR EOF token.
+		arg, err := p.parseExpression(nxtToken, LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, arg)
+
+		// assert and skip the comma between expressions
+		if _, err := p.assertAndAdvanceTkn(token.COMMA); err != nil {
+			break
 		}
 	}
 
-	return prog
+	if _, err := p.assertAndAdvanceTkn(token.RPAREN); err != nil {
+		return nil, err
+	}
+
+	return args, nil
 }
 
 func (p *Parser) parseStatement(startToken *token.Token) (ast.Statement, error) {
@@ -340,12 +390,16 @@ func (p *Parser) parseLetStatement(startToken *token.Token) (*ast.LetStatement, 
 		return nil, err
 	}
 
-	// TODO, skip value
-	for err := p.assertPeek(token.SEMICOLON, token.EOF); err != nil; _, err = p.nextToken() {
+	nxtTkn, err := p.nextToken()
+	if err != nil {
+		return nil, err
 	}
-	// skip semi
-	if err := p.assertPeek(token.SEMICOLON); err == nil {
-		p.nextToken()
+	exp, err := p.parseExpression(nxtTkn, LOWEST)
+	stmt.Value = exp
+
+	// assert is semicolon
+	if _, err := p.assertAndAdvanceTkn(token.SEMICOLON); err != nil {
+		return nil, err
 	}
 
 	return stmt, nil
@@ -356,12 +410,19 @@ func (p *Parser) parseReturnStatement(startToken *token.Token) (*ast.ReturnState
 		Token: startToken,
 	}
 
-	// TODO, skip value
-	for err := p.assertPeek(token.SEMICOLON, token.EOF); err != nil; _, err = p.nextToken() {
+	nxtTkn, err := p.nextToken()
+	if err != nil {
+		return nil, err
 	}
-	// skip semi
-	if err := p.assertPeek(token.SEMICOLON); err == nil {
-		p.nextToken()
+	rv, err := p.parseExpression(nxtTkn, LOWEST)
+	if err != nil {
+		return nil, err
+	}
+	stmt.ReturnValue = rv
+
+	// assert is semicolon
+	if _, err := p.assertAndAdvanceTkn(token.SEMICOLON); err != nil {
+		return nil, err
 	}
 
 	return stmt, nil
@@ -392,6 +453,7 @@ var precedences = map[token.TokenType]int{
 	token.MINUS:    SUM,
 	token.SLASH:    PRODUCT,
 	token.ASTERISK: PRODUCT,
+	token.LPAREN:   CALL,
 }
 
 func (p *Parser) getPrecedence(tkn *token.Token) int {
