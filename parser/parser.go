@@ -49,6 +49,7 @@ func New(l *lexer.Lexer) *Parser {
 		token.PLUSPLUS:   p.parsePrefixExpression,
 		token.LPAREN:     p.parseGroupedExpression,
 		token.IF:         p.parseIfExpression,
+		token.FUNCTION:   p.parseFunctionLiteral,
 	}
 	p.infixParseFns = map[token.TokenType]infixParseFn{
 		token.PLUS:     p.parseInfixExpression,
@@ -97,6 +98,60 @@ func (p *Parser) parseBooleanLiteral(tkn *token.Token) (ast.Expression, error) {
 	return exp, nil
 }
 
+func (p *Parser) parseFunctionLiteral(tkn *token.Token) (ast.Expression, error) {
+	fn := &ast.FunctionLiteral{Token: tkn}
+
+	if _, err := p.assertAndAdvanceTkn(token.LPAREN); err != nil {
+		return nil, err
+	}
+
+	params, err := p.parseFunctionParams()
+	if err != nil {
+		return nil, err
+	}
+	fn.Parameters = params
+
+	lBraceTkn, err := p.assertAndAdvanceTkn(token.LBRACE)
+	if err != nil {
+		return nil, err
+	}
+
+	blockStmt, err := p.parseBlockStatement(lBraceTkn)
+	if err != nil {
+		return nil, err
+	}
+	fn.Body = blockStmt
+
+	return fn, nil
+}
+
+func (p *Parser) parseFunctionParams() ([]*ast.Identifier, error) {
+	idents := make([]*ast.Identifier, 0)
+	// scan till rbrace
+	for p.assertPeek(token.RPAREN) != nil {
+		nxtToken, err := p.nextToken()
+		if err != nil {
+			return nil, err
+		}
+
+		idents = append(idents, &ast.Identifier{
+			Token: nxtToken,
+			Value: nxtToken.Literal,
+		})
+
+		// assert and skip the comma between identifiers
+		if _, err := p.assertAndAdvanceTkn(token.COMMA); err != nil {
+			break
+		}
+	}
+
+	if _, err := p.assertAndAdvanceTkn(token.RPAREN); err != nil {
+		return nil, err
+	}
+
+	return idents, nil
+}
+
 func (p *Parser) parsePrefixExpression(tkn *token.Token) (ast.Expression, error) {
 	expression := &ast.PrefixExpression{
 		Token:    tkn,
@@ -127,11 +182,8 @@ func (p *Parser) parseGroupedExpression(_ *token.Token) (ast.Expression, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := p.assertPeek(token.RPAREN); err != nil {
-		return nil, err
-	}
 	// advance past ')'
-	if _, err := p.nextToken(); err != nil {
+	if _, err := p.assertAndAdvanceTkn(token.RPAREN); err != nil {
 		return nil, err
 	}
 
@@ -141,12 +193,10 @@ func (p *Parser) parseGroupedExpression(_ *token.Token) (ast.Expression, error) 
 func (p *Parser) parseIfExpression(tkn *token.Token) (ast.Expression, error) {
 	exp := &ast.IfExpression{Token: tkn}
 
-	if err := p.assertPeek(token.LPAREN); err != nil {
+	if _, err := p.assertAndAdvanceTkn(token.LPAREN); err != nil {
 		return nil, err
 	}
-	if _, err := p.nextToken(); err != nil {
-		return nil, err
-	}
+
 	nxtTkn, err := p.nextToken()
 	if err != nil {
 		return nil, err
@@ -162,17 +212,11 @@ func (p *Parser) parseIfExpression(tkn *token.Token) (ast.Expression, error) {
 		return nil, err
 	}
 
-	if err := p.assertPeek(token.RPAREN); err != nil {
-		return nil, err
-	}
-	if _, err := p.nextToken(); err != nil {
+	if _, err := p.assertAndAdvanceTkn(token.RPAREN); err != nil {
 		return nil, err
 	}
 
-	if err := p.assertPeek(token.LBRACE); err != nil {
-		return nil, err
-	}
-	lBraceTkn, err := p.nextToken()
+	lBraceTkn, err := p.assertAndAdvanceTkn(token.LBRACE)
 	if err != nil {
 		return nil, err
 	}
@@ -182,18 +226,11 @@ func (p *Parser) parseIfExpression(tkn *token.Token) (ast.Expression, error) {
 	}
 
 	// no ELSE to evaluate
-	if err := p.assertPeek(token.ELSE); err != nil {
+	if _, err := p.assertAndAdvanceTkn(token.ELSE); err != nil {
 		return exp, nil
 	}
 
-	if _, err := p.nextToken(); err != nil {
-		return nil, err
-	}
-
-	if err := p.assertPeek(token.LBRACE); err != nil {
-		return nil, err
-	}
-	lBraceTkn, err = p.nextToken()
+	lBraceTkn, err = p.assertAndAdvanceTkn(token.LBRACE)
 	if err != nil {
 		return nil, err
 	}
@@ -209,9 +246,8 @@ func (p *Parser) parseBlockStatement(tkn *token.Token) (*ast.BlockStatement, err
 		Token:      tkn,
 		Statements: make([]ast.Statement, 0),
 	}
-	var err error
 
-	for err = p.assertPeek(token.RBRACE, token.EOF); err != nil; err = p.assertPeek(token.RBRACE, token.EOF) {
+	for p.assertPeek(token.RBRACE, token.EOF) != nil {
 		nxtToken, err := p.nextToken()
 		if err != nil {
 			return nil, err
@@ -222,11 +258,8 @@ func (p *Parser) parseBlockStatement(tkn *token.Token) (*ast.BlockStatement, err
 		}
 		block.Statements = append(block.Statements, stmt)
 	}
-	if err := p.assertPeek(token.RBRACE); err != nil {
-		return nil, err
-	}
 	// advance past '}'
-	if _, err := p.nextToken(); err != nil {
+	if _, err := p.assertAndAdvanceTkn(token.RBRACE); err != nil {
 		return nil, err
 	}
 
@@ -293,11 +326,8 @@ func (p *Parser) parseLetStatement(startToken *token.Token) (*ast.LetStatement, 
 	stmt := &ast.LetStatement{
 		Token: startToken,
 	}
-	if err := p.assertPeek(token.IDENT); err != nil {
-		return nil, err
-	}
 
-	nameToken, err := p.nextToken()
+	nameToken, err := p.assertAndAdvanceTkn(token.IDENT)
 	if err != nil {
 		return nil, err
 	}
@@ -306,10 +336,7 @@ func (p *Parser) parseLetStatement(startToken *token.Token) (*ast.LetStatement, 
 		Value: nameToken.Literal,
 	}
 
-	if err := p.assertPeek(token.ASSIGN); err != nil {
-		return nil, err
-	}
-	if _, err := p.nextToken(); err != nil {
+	if _, err := p.assertAndAdvanceTkn(token.ASSIGN); err != nil {
 		return nil, err
 	}
 
@@ -350,10 +377,8 @@ func (p *Parser) parseExpressionStatement(startToken *token.Token) (*ast.Express
 		Expression: exp,
 	}
 
-	// advance if is semicolon
-	if p.assertPeek(token.SEMICOLON) == nil {
-		p.nextToken()
-	}
+	// advance if is semicolon, intentionally ignoring the assertion error
+	p.assertAndAdvanceTkn(token.SEMICOLON)
 
 	return stmt, nil
 }
@@ -447,4 +472,12 @@ func (p *Parser) assertPeek(wantTkns ...token.TokenType) error {
 	}
 
 	return nil
+}
+
+func (p *Parser) assertAndAdvanceTkn(wantTkns ...token.TokenType) (*token.Token, error) {
+	if err := p.assertPeek(wantTkns...); err != nil {
+		return nil, err
+	}
+
+	return p.nextToken()
 }
